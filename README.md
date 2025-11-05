@@ -1,6 +1,6 @@
 # NFF Auto Report
 
-A comprehensive automated reporting system built with microservices architecture.
+A comprehensive automated reporting system built with microservices architecture
 
 ## 🏗️ Architecture
 
