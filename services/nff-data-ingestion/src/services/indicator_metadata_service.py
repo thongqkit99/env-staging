@@ -368,9 +368,7 @@ class IndicatorMetadataService:
     
     async def get_or_create_category(self, category_name: str) -> Optional[Any]:
         try:
-            conn = psycopg2.connect(self.db_url)
-            
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with self.db_pool.get_cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
                     SELECT * FROM "ChartCategory" WHERE name = %s
                 """, (category_name,))
@@ -394,7 +392,6 @@ class IndicatorMetadataService:
                 """, (category_name, f"{category_name} indicators", "chart"))
                 
                 new_category = cur.fetchone()
-                conn.commit()
                 
                 class Category:
                     def __init__(self, data):
@@ -408,12 +405,7 @@ class IndicatorMetadataService:
                 
         except Exception as e:
             logger.error(f"Error getting or creating category {category_name}: {e}")
-            if 'conn' in locals():
-                conn.rollback()
             raise
-        finally:
-            if 'conn' in locals():
-                conn.close()
     
     async def upsert_indicator_metadata(self, indicator_data: Dict[str, Any]) -> Any:
         try:
