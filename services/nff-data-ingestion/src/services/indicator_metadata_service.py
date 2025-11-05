@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from config import settings
 import logging
+from core.db_pool import db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +12,7 @@ class IndicatorMetadataService:
     
     def __init__(self):
         self.db_url = settings.DATABASE_URL
+        self.db_pool = db_pool
     
     async def get_indicators(
         self,
