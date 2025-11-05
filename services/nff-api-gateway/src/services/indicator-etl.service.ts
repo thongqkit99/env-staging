@@ -31,6 +31,10 @@ export class IndicatorETLService {
       this.configService.get<string>('PYTHON_SERVICE_URL') ||
       process.env.PYTHON_SERVICE_URL ||
       'http://localhost:8000';
+
+    this.logger.log(
+      `IndicatorETLService initialized with Python service URL: ${this.dataIngestionServiceUrl}`,
+    );
   }
 
   async triggerFullHistoricalFetch(
@@ -40,19 +44,28 @@ export class IndicatorETLService {
     importanceMin?: number,
   ): Promise<ETLJobResult> {
     try {
-      const payload = {
-        start_date: startDate || '2000-01-01',
-        end_date: endDate || new Date().toISOString().split('T')[0],
-        importance_min: importanceMin,
-      };
+      const params = new URLSearchParams();
+      if (startDate) {
+        params.append('start_date', startDate);
+      } else {
+        params.append('start_date', '2000-01-01');
+      }
+      if (endDate) {
+        params.append('end_date', endDate);
+      } else {
+        params.append('end_date', new Date().toISOString().split('T')[0]);
+      }
+      if (importanceMin !== undefined) {
+        params.append('importance_min', importanceMin.toString());
+      }
 
       this.logger.log(
-        `Calling Python ETL service for full fetch: ${categoryName}`,
+        `Calling Python ETL service for full fetch: ${categoryName} at ${this.dataIngestionServiceUrl}/api/v1/etl/category/${categoryName}/fetch-all?${params.toString()}`,
       );
 
       const response = await axios.post(
-        `${this.dataIngestionServiceUrl}/api/v1/etl/category/${categoryName}/fetch-all`,
-        payload,
+        `${this.dataIngestionServiceUrl}/api/v1/etl/category/${categoryName}/fetch-all?${params.toString()}`,
+        null, // No body, only query params
         {
           timeout: 30000, // 30 seconds timeout
           headers: {
@@ -61,21 +74,33 @@ export class IndicatorETLService {
         },
       );
 
+      const finalStartDate = startDate || '2000-01-01';
+      const finalEndDate = endDate || new Date().toISOString().split('T')[0];
+
       return {
         jobId: response.data.job_id,
         metadata: {
           category: categoryName,
-          startDate: payload.start_date,
-          endDate: payload.end_date,
+          startDate: finalStartDate,
+          endDate: finalEndDate,
           importanceMin: importanceMin,
         },
       };
     } catch (error) {
+      const errorMessage = error.response?.data?.detail || error.message;
+      const errorStatus = error.response?.status || 'N/A';
+      const errorUrl = error.config?.url || 'N/A';
+
       this.logger.error(
-        `Failed to trigger full historical fetch: ${error.message}`,
-        error.stack,
+        `Failed to trigger full historical fetch for ${categoryName}: ${errorMessage}`,
+        {
+          status: errorStatus,
+          url: errorUrl,
+          pythonServiceUrl: this.dataIngestionServiceUrl,
+          stack: error.stack,
+        },
       );
-      throw new Error(`Full historical fetch failed: ${error.message}`);
+      throw new Error(`Full historical fetch failed: ${errorMessage}`);
     }
   }
 
