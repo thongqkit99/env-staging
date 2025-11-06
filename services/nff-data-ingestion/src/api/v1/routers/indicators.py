@@ -127,12 +127,10 @@ async def import_indicators_from_excel(
             calculation="N/A"
         )
         monitor.start_job(job_id)
-        excel_path = await service.get_excel_file_path(request.excelPath)
         
         background_tasks.add_task(
             _import_indicators_background_task,
             service,
-            excel_path,
             request.excelPath,
             request.sheetName,
             request.categoryName,
@@ -160,16 +158,18 @@ async def import_indicators_from_excel(
 
 async def _import_indicators_background_task(
     service: ExcelImportService,
-    excel_path: str,
-    original_path: str,
+    excel_path_or_url: str,
     sheet_name: str,
     category_name: str,
     job_id: str
 ):
     import os
     logger = get_logger(__name__)
+    excel_path = None
     
     try:
+        excel_path = await service.get_excel_file_path(excel_path_or_url)
+        
         result = await service.import_indicators_from_excel(
             excel_path=excel_path,
             sheet_name=sheet_name,
@@ -183,7 +183,7 @@ async def _import_indicators_background_task(
         logger.error(f"Excel import failed for job {job_id}: {str(e)}")
         monitor.fail_job(job_id, "EXCEL_IMPORT_FAILED", str(e), ErrorCategory.SYSTEM_ERROR)
     finally:
-        if excel_path != original_path:
+        if excel_path and excel_path != excel_path_or_url:
             try:
                 os.remove(excel_path)
                 logger.info(f"Cleaned up temporary file: {excel_path}")

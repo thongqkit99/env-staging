@@ -31,10 +31,6 @@ export class IndicatorETLService {
       this.configService.get<string>('PYTHON_SERVICE_URL') ||
       process.env.PYTHON_SERVICE_URL ||
       'http://localhost:8000';
-
-    this.logger.log(
-      `IndicatorETLService initialized with Python service URL: ${this.dataIngestionServiceUrl}`,
-    );
   }
 
   async triggerFullHistoricalFetch(
@@ -104,49 +100,6 @@ export class IndicatorETLService {
     }
   }
 
-  async triggerIncrementalFetch(
-    categoryName: string,
-    daysBack: number = 30,
-    importanceMin?: number,
-  ): Promise<ETLJobResult> {
-    try {
-      const payload = {
-        days_back: daysBack,
-        importance_min: importanceMin,
-      };
-
-      this.logger.log(
-        `Calling Python ETL service for incremental fetch: ${categoryName}`,
-      );
-
-      const response = await axios.post(
-        `${this.dataIngestionServiceUrl}/api/v1/etl/incremental/${categoryName}`,
-        payload,
-        {
-          timeout: 30000, // 30 seconds timeout
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return {
-        jobId: response.data.job_id,
-        metadata: {
-          category: categoryName,
-          daysBack: daysBack,
-          importanceMin: importanceMin,
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to trigger incremental fetch: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Incremental fetch failed: ${error.message}`);
-    }
-  }
-
   async importIndicatorsFromExcel(
     excelPath: string,
     sheetName: string,
@@ -167,7 +120,7 @@ export class IndicatorETLService {
         `${this.dataIngestionServiceUrl}/api/v1/indicators/import`,
         payload,
         {
-          timeout: 30000,
+          timeout: 15000,
           headers: {
             'Content-Type': 'application/json',
           },
@@ -188,28 +141,6 @@ export class IndicatorETLService {
         error.stack,
       );
       throw new Error(`Excel import failed: ${error.message}`);
-    }
-  }
-
-  async getETLJobStatus(jobId: string): Promise<any> {
-    try {
-      const response = await axios.get(
-        `${this.dataIngestionServiceUrl}/api/v1/etl/jobs/${jobId}`,
-        {
-          timeout: 10000,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        `Failed to get ETL job status: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get job status: ${error.message}`);
     }
   }
 
@@ -262,84 +193,6 @@ export class IndicatorETLService {
         error.stack,
       );
       throw new Error(`Failed to get all ETL jobs: ${error.message}`);
-    }
-  }
-
-  async importAndFetchCategory(
-    categoryName: string,
-    startDate?: string,
-    endDate?: string,
-    importanceMin?: number,
-  ): Promise<any> {
-    try {
-      this.logger.log(
-        `Import and fetch pipeline for category: ${categoryName}`,
-      );
-
-      // Call Python service endpoint that does everything
-      const response = await axios.post(
-        `${this.dataIngestionServiceUrl}/api/v1/bulk/import-and-fetch-category`,
-        {
-          category_name: categoryName,
-          excel_path:
-            'services/nff-data-ingestion/src/data/NFF_Indicators.xlsx',
-          start_date: startDate || '2000-01-01',
-          end_date: endDate || new Date().toISOString().split('T')[0],
-          importance_min: importanceMin || 1,
-        },
-        {
-          timeout: 300000, // 5 minutes for complete pipeline
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        `Failed to import and fetch category: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Import and fetch failed for ${categoryName}: ${error.message}`,
-      );
-    }
-  }
-
-  async checkExcelFileExists(excelPath: string): Promise<{
-    exists: boolean;
-    fileSize?: number;
-    lastModified?: string;
-  }> {
-    try {
-      this.logger.log(`Checking Excel file accessibility: ${excelPath}`);
-
-      const response = await axios.head(excelPath, {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'NFF-Auto-Report/1.0',
-        },
-      });
-
-      const fileSize = response.headers['content-length']
-        ? parseInt(response.headers['content-length'], 10)
-        : undefined;
-
-      const lastModified = response.headers['last-modified'];
-
-      return {
-        exists: true,
-        fileSize,
-        lastModified,
-      };
-    } catch (error) {
-      this.logger.warn(
-        `Excel file not accessible at ${excelPath}: ${error.message}`,
-      );
-      return {
-        exists: false,
-      };
     }
   }
 
