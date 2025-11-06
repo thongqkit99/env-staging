@@ -120,7 +120,7 @@ export class IndicatorETLService {
         `${this.dataIngestionServiceUrl}/api/v1/indicators/import`,
         payload,
         {
-          timeout: 200000,
+          timeout: 2000000,
           headers: {
             'Content-Type': 'application/json',
           },
