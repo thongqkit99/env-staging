@@ -1,17 +1,13 @@
-"""
-Indicators Management Router
-API endpoints for managing indicator metadata
-"""
-
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from services.indicator_metadata_service import IndicatorMetadataService
 from services.excel_import_service import ExcelImportService
+from core.monitoring import monitor, ErrorCategory
+from utils.logger import get_logger
 
 router = APIRouter()
 
-# Pydantic models for request/response
 class IndicatorMetadataResponse(BaseModel):
     id: int
     moduleEN: str
@@ -60,9 +56,6 @@ async def get_indicators(
     limit: int = Query(100, description="Maximum number of results"),
     offset: int = Query(0, description="Number of results to skip")
 ):
-    """
-    Get list of indicators with filtering options
-    """
     try:
         service = IndicatorMetadataService()
         
@@ -96,9 +89,6 @@ async def get_indicators(
 async def get_indicator(
     indicator_id: int = Path(..., description="Indicator ID")
 ):
-    """
-    Get specific indicator by ID
-    """
     try:
         service = IndicatorMetadataService()
         indicator = await service.get_indicator_by_id(indicator_id)
@@ -121,52 +111,90 @@ async def get_indicator(
 
 @router.post("/indicators/import")
 async def import_indicators_from_excel(
-    request: IndicatorImportRequest
+    request: IndicatorImportRequest,
+    background_tasks: BackgroundTasks
 ):
-    """
-    Import indicators from Excel file (auto-detects local path or S3 URL)
-    """
     try:
+        logger = get_logger(__name__)
         service = ExcelImportService()
         
-        # Auto-detect if it's a URL and download if needed
+        job_id = monitor.create_job(
+            indicator_id=f"excel_import_{request.categoryName}",
+            indicator_name=f"Excel Import: {request.sheetName} -> {request.categoryName}",
+            module="System",
+            source="Excel",
+            series_ids=request.excelPath,
+            calculation="N/A"
+        )
+        monitor.start_job(job_id)
         excel_path = await service.get_excel_file_path(request.excelPath)
         
-        result = await service.import_indicators_from_excel(
-            excel_path=excel_path,
-            sheet_name=request.sheetName,
-            category_name=request.categoryName
+        background_tasks.add_task(
+            _import_indicators_background_task,
+            service,
+            excel_path,
+            request.excelPath,
+            request.sheetName,
+            request.categoryName,
+            job_id
         )
         
-        # Clean up temporary file if it was downloaded
-        if excel_path != request.excelPath:
-            import os
-            try:
-                os.remove(excel_path)
-            except:
-                pass  # Ignore cleanup errors
+        logger.info(f"Excel import job started: {job_id} for {request.sheetName} -> {request.categoryName}")
         
         return {
             "status": "success",
-            "message": f"Successfully imported {result.get('processed_count', 0)} indicators",
-            "job_id": result.get('job_id', 'N/A'),
-            "details": result
+            "message": f"Excel import started in background for {request.sheetName} -> {request.categoryName}",
+            "job_id": job_id,
+            "excel_path": request.excelPath,
+            "sheet_name": request.sheetName,
+            "category_name": request.categoryName
         }
         
     except Exception as e:
+        logger = get_logger(__name__)
+        logger.error(f"Failed to start Excel import: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to import indicators: {str(e)}"
         )
+
+async def _import_indicators_background_task(
+    service: ExcelImportService,
+    excel_path: str,
+    original_path: str,
+    sheet_name: str,
+    category_name: str,
+    job_id: str
+):
+    import os
+    logger = get_logger(__name__)
+    
+    try:
+        result = await service.import_indicators_from_excel(
+            excel_path=excel_path,
+            sheet_name=sheet_name,
+            category_name=category_name,
+            job_id=job_id
+        )
+        
+        logger.info(f"Excel import completed for job {job_id}: {result}")
+        
+    except Exception as e:
+        logger.error(f"Excel import failed for job {job_id}: {str(e)}")
+        monitor.fail_job(job_id, "EXCEL_IMPORT_FAILED", str(e), ErrorCategory.SYSTEM_ERROR)
+    finally:
+        if excel_path != original_path:
+            try:
+                os.remove(excel_path)
+                logger.info(f"Cleaned up temporary file: {excel_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temporary file {excel_path}: {cleanup_error}")
 
 @router.put("/indicators/{indicator_id}")
 async def update_indicator(
     indicator_id: int = Path(..., description="Indicator ID"),
     request: IndicatorUpdateRequest = None
 ):
-    """
-    Update indicator metadata
-    """
     try:
         service = IndicatorMetadataService()
         
@@ -190,9 +218,6 @@ async def get_indicator_etl_logs(
     indicator_id: int = Path(..., description="Indicator ID"),
     limit: int = Query(10, description="Maximum number of logs")
 ):
-    """
-    Get ETL logs for specific indicator
-    """
     try:
         service = IndicatorMetadataService()
         logs = await service.get_etl_logs(indicator_id, limit)
@@ -214,9 +239,6 @@ async def get_indicators_by_report_type(
     report_type_name: str = Path(..., description="Report type name"),
     include_default_only: bool = Query(True, description="Include only default indicators")
 ):
-    """
-    Get indicators for specific report type
-    """
     try:
         service = IndicatorMetadataService()
         
@@ -240,9 +262,6 @@ async def get_indicators_by_report_type(
 
 @router.get("/indicators/stats")
 async def get_indicators_stats():
-    """
-    Get indicators statistics
-    """
     try:
         service = IndicatorMetadataService()
         stats = await service.get_statistics()

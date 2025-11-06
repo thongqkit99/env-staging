@@ -1,7 +1,3 @@
-"""
-Bulk Operations API Router
-Handles bulk import and ETL operations
-"""
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from typing import Optional, List, Dict, Any
 from datetime import date
@@ -16,7 +12,6 @@ router = APIRouter()
 excel_import_service = ExcelImportService()
 etl_service = ETLService()
 
-# Sheet name mapping
 CATEGORY_SHEET_MAP = {
     "Macro": "Macro",
     "Micro": "Micro",
@@ -31,12 +26,7 @@ async def import_all_categories_from_excel_api(
     excel_path: str = Query(..., description="Path to the Excel file"),
     background_tasks: BackgroundTasks = BackgroundTasks()
 ):
-    """
-    Imports all categories from the Excel file into the database.
-    This operation processes all 6 sheets: Macro, Micro, Options, CTA, Combinations, NFF-Exclusive
-    """
     try:
-        # Create monitoring job
         job_id = monitor.create_job(
             indicator_id="bulk_import_all",
             indicator_name="Bulk Import All Categories",
@@ -47,7 +37,6 @@ async def import_all_categories_from_excel_api(
         )
         monitor.start_job(job_id)
 
-        # Start background task
         background_tasks.add_task(
             excel_import_service.import_all_categories_from_excel,
             excel_path,
@@ -72,14 +61,9 @@ async def fetch_all_categories_full(
     end_date: Optional[date] = Query(None, description="End date for historical data (YYYY-MM-DD)"),
     importance_min: Optional[int] = Query(None, ge=1, le=5, description="Minimum importance level to process")
 ):
-    """
-    Triggers a full historical fetch for all categories with active indicators.
-    This is typically used for initial data loading after Excel import.
-    """
     try:
         categories = ["Macro", "Micro", "Options", "CTA", "Combination", "Exclusive"]
         
-        # Create monitoring job for bulk operation
         job_id = monitor.create_job(
             indicator_id="bulk_fetch_all",
             indicator_name="Bulk Full Fetch All Categories",
@@ -90,7 +74,6 @@ async def fetch_all_categories_full(
         )
         monitor.start_job(job_id)
 
-        # Start background task
         background_tasks.add_task(
             _bulk_full_fetch_task,
             categories,
@@ -128,7 +111,6 @@ async def fetch_all_categories_incremental(
     try:
         categories = ["Macro", "Micro", "Options", "CTA", "Combination", "Exclusive"]
         
-        # Create monitoring job for bulk operation
         job_id = monitor.create_job(
             indicator_id="bulk_incremental_all",
             indicator_name="Bulk Incremental Fetch All Categories",
@@ -139,7 +121,6 @@ async def fetch_all_categories_incremental(
         )
         monitor.start_job(job_id)
 
-        # Start background task
         background_tasks.add_task(
             _bulk_incremental_fetch_task,
             categories,
@@ -164,11 +145,8 @@ async def fetch_all_categories_incremental(
 
 @router.get("/bulk/status/{job_id}", summary="Get status of bulk operation")
 async def get_bulk_operation_status(job_id: str):
-    """
-    Retrieves the current status and details of a bulk operation.
-    """
     try:
-        job_status = monitor.get_job(job_id)
+        job_status = monitor.get_job_status(job_id)
         if not job_status:
             raise HTTPException(status_code=404, detail=f"Bulk operation with ID '{job_id}' not found")
         
@@ -183,7 +161,6 @@ async def get_bulk_operation_status(job_id: str):
         logger.error(f"Failed to get bulk operation status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get bulk operation status: {str(e)}")
 
-# Background task functions
 async def _bulk_full_fetch_task(
     categories: List[str],
     start_date: Optional[date],
@@ -201,7 +178,6 @@ async def _bulk_full_fetch_task(
         try:
             logger.info(f"Starting full fetch for category: {category}")
             
-            # Trigger full fetch for this category
             await etl_service.trigger_full_historical_fetch(
                 category, start_date, end_date, importance_min, None
             )
@@ -213,7 +189,6 @@ async def _bulk_full_fetch_task(
             failed_categories.append({"category": category, "error": str(e)})
             logger.error(f"Failed to trigger full fetch for category {category}: {e}")
     
-    # Update parent job status
     monitor.update_job_metadata(parent_job_id, {
         "successful_categories": successful_categories,
         "failed_categories": failed_categories,
@@ -232,9 +207,6 @@ async def _bulk_incremental_fetch_task(
     importance_min: Optional[int],
     parent_job_id: str
 ):
-    """
-    Background task to perform incremental fetch for all categories
-    """
     successful_categories = []
     failed_categories = []
     
@@ -242,7 +214,6 @@ async def _bulk_incremental_fetch_task(
         try:
             logger.info(f"Starting incremental fetch for category: {category}")
             
-            # Trigger incremental fetch for this category
             await etl_service.trigger_incremental_fetch(
                 category, days_back, importance_min, None
             )
@@ -254,7 +225,6 @@ async def _bulk_incremental_fetch_task(
             failed_categories.append({"category": category, "error": str(e)})
             logger.error(f"Failed to trigger incremental fetch for category {category}: {e}")
     
-    # Update parent job status
     monitor.update_job_metadata(parent_job_id, {
         "successful_categories": successful_categories,
         "failed_categories": failed_categories,

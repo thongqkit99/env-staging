@@ -1,8 +1,3 @@
-"""
-ETL Operations Router
-API endpoints for data fetching and processing
-"""
-
 from fastapi import APIRouter, HTTPException, Query, Path, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -11,7 +6,6 @@ from services.etl_service import ETLService
 
 router = APIRouter()
 
-# Pydantic models
 class ETLJobRequest(BaseModel):
     indicator_ids: Optional[List[int]] = None
     category: Optional[str] = None
@@ -42,26 +36,15 @@ async def create_etl_job(
     request: ETLJobRequest,
     background_tasks: BackgroundTasks
 ):
-    """
-    Create and start an ETL job
-    
-    Options:
-    - indicator_ids: Process specific indicators
-    - category: Process all indicators in category (e.g., "Macro")
-    - source: Process all indicators from source (e.g., "FRED")
-    - force_refresh: Force refresh even if recently updated
-    """
     try:
         service = ETLService()
         
-        # Validate request
         if not request.indicator_ids and not request.category and not request.source:
             raise HTTPException(
                 status_code=400,
                 detail="Must specify indicator_ids, category, or source"
             )
         
-        # Create job
         job = await service.create_job(
             indicator_ids=request.indicator_ids,
             category=request.category,
@@ -69,7 +52,6 @@ async def create_etl_job(
             force_refresh=request.force_refresh
         )
         
-        # Start processing in background
         background_tasks.add_task(
             service.process_job,
             job_id=job["job_id"]
@@ -91,24 +73,44 @@ async def create_etl_job(
             detail=f"Failed to create ETL job: {str(e)}"
         )
 
-@router.get("/etl/jobs/{job_id}", response_model=ETLResult)
+@router.get("/etl/jobs/{job_id}")
 async def get_etl_job_status(
     job_id: str = Path(..., description="ETL Job ID")
 ):
-    """
-    Get ETL job status and results
-    """
     try:
+        from core.monitoring import monitor
+        
         service = ETLService()
         result = await service.get_job_result(job_id)
         
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail=f"ETL job {job_id} not found"
-            )
-            
-        return ETLResult(**result)
+        if result:
+            return ETLResult(**result)
+        
+        monitor_job = monitor.get_job_status(job_id)
+        if monitor_job:
+            return {
+                "job_id": monitor_job.get('job_id'),
+                "status": monitor_job.get('status', 'unknown'),
+                "indicator_name": monitor_job.get('indicator_name'),
+                "created_at": monitor_job.get('created_at'),
+                "started_at": monitor_job.get('started_at'),
+                "completed_at": monitor_job.get('completed_at'),
+                "records_count": monitor_job.get('records_count', 0),
+                "error_code": monitor_job.get('error_code'),
+                "error_message": monitor_job.get('error_message'),
+                "progress": monitor_job.get('progress', {}),
+                "total_indicators": 0,
+                "successful": monitor_job.get('records_count', 0) if monitor_job.get('status') == 'completed' else 0,
+                "failed": 1 if monitor_job.get('status') == 'failed' else 0,
+                "blocked": 0,
+                "details": [],
+                "duration_seconds": None
+            }
+        
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job {job_id} not found in ETL service or monitoring system"
+        )
         
     except HTTPException:
         raise
@@ -123,9 +125,6 @@ async def list_etl_jobs(
     status: Optional[str] = Query(None, description="Filter by job status"),
     limit: int = Query(50, description="Maximum number of jobs")
 ):
-    """
-    List recent ETL jobs
-    """
     try:
         service = ETLService()
         jobs = await service.list_jobs(status=status, limit=limit)
@@ -149,16 +148,9 @@ async def fetch_single_indicator(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     force_refresh: bool = Query(False, description="Force refresh data")
 ):
-    """
-    Fetch data for a single indicator
-    
-    - start_date/end_date: Specify date range for historical data
-    - force_refresh: Override existing data
-    """
     try:
         service = ETLService()
         
-        # Parse dates
         start_dt = None
         end_dt = None
         if start_date:
@@ -195,16 +187,9 @@ async def fetch_category_indicators(
     importance_min: int = Query(1, description="Minimum importance level"),
     background_tasks: BackgroundTasks = None
 ):
-    """
-    Fetch all indicators in a category
-    
-    This will fetch data from start_date to end_date for all indicators
-    in the specified category with importance >= importance_min
-    """
     try:
         service = ETLService()
         
-        # Parse dates
         start_dt = None
         end_dt = None
         if start_date:
@@ -212,7 +197,6 @@ async def fetch_category_indicators(
         if end_date:
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
         
-        # Create job for category fetch
         job = await service.create_category_job(
             category_name=category_name,
             start_date=start_dt,
@@ -220,7 +204,6 @@ async def fetch_category_indicators(
             importance_min=importance_min
         )
         
-        # Start processing in background
         background_tasks.add_task(
             service.process_category_job,
             job_id=job["job_id"]
@@ -245,12 +228,6 @@ async def incremental_fetch_category(
     days_back: int = Query(30, description="Number of days back to fetch"),
     background_tasks: BackgroundTasks = None
 ):
-    """
-    Incremental fetch for category (fetch recent data only)
-    
-    This will fetch data from the last successful date + 1 day
-    up to today for all indicators in the category
-    """
     try:
         service = ETLService()
         
@@ -259,7 +236,6 @@ async def incremental_fetch_category(
             days_back=days_back
         )
         
-        # Start processing in background
         background_tasks.add_task(
             service.process_incremental_job,
             job_id=job["job_id"]
@@ -286,13 +262,9 @@ async def get_indicator_data(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     limit: int = Query(1000, description="Maximum number of data points")
 ):
-    """
-    Get time-series data for an indicator
-    """
     try:
         service = ETLService()
         
-        # Parse dates
         start_dt = None
         end_dt = None
         if start_date:
