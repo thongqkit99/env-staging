@@ -142,8 +142,6 @@ export class IndicatorController {
     );
   }
 
-  // New endpoints following proper database relationships
-
   @Get('blocks/:blockId/indicators')
   @ApiOperation({
     summary: 'Get indicators configured for a specific chart block',

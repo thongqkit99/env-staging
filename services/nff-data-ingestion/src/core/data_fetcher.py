@@ -1,6 +1,3 @@
-"""
-Enhanced Data Fetcher with GitHub Secrets Integration & Mock Mode
-"""
 import pandas as pd
 import requests
 import os
@@ -11,48 +8,23 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-try:
-    from .data_fetcher_mock import MockFREDDataFetcher, MockPolygonDataFetcher, MockShillerDataFetcher
-    MOCK_AVAILABLE = True
-except ImportError:
-    MOCK_AVAILABLE = False
-    logger.warning("Mock data fetchers not available")
-
 class BaseDataFetcher(ABC):
-    """Abstract base class for all data fetchers."""
-    
     @abstractmethod
     async def fetch(self, series_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
-        """
-        Fetches data for given series IDs from the respective source.
-        series_id can be a single ID or pipe-separated IDs.
-        Returns list of dicts with 'date' and 'value' keys
-        """
         pass
 
 class FREDDataFetcher(BaseDataFetcher):
-    """
-    FRED API Data Fetcher with GitHub Secrets integration
-    """
-    
     def __init__(self):
         self.api_key = self._get_api_key()
         self.base_url = "https://api.stlouisfed.org/fred"
         
         if not self.api_key:
-            logger.error("FRED_API_KEY not found in any source (GitHub Secrets, environment variables)")
+            logger.error("FRED_API_KEY not found")
             raise ValueError("FRED_API_KEY is required for FREDDataFetcher.")
         
         logger.info("FRED API fetcher initialized successfully")
 
     def _get_api_key(self) -> Optional[str]:
-        """
-        Get FRED API key from multiple sources:
-        1. GitHub Secrets (for CI/CD)
-        2. Environment variables (for local development)
-        3. Config file (fallback)
-        """
-        # Try GitHub Secrets first (for CI/CD environments)
         api_key = os.getenv('FRED_API_KEY')
         
         if api_key:
@@ -68,10 +40,6 @@ class FREDDataFetcher(BaseDataFetcher):
         return None
 
     async def fetch(self, series_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
-        """
-        Fetch data from FRED API for given series IDs
-        Returns list of dicts with 'date', 'value', and 'series_id' keys
-        """
         all_series_data = []
         series_list = [s.strip() for s in series_id.split('|')] if '|' in series_id else [series_id.strip()]
 
@@ -84,9 +52,9 @@ class FREDDataFetcher(BaseDataFetcher):
                     'series_id': sid,
                     'api_key': self.api_key,
                     'file_type': 'json',
-                    'observation_start': start_date.isoformat() if start_date else '1776-07-04',  # FRED's earliest date
+                    'observation_start': start_date.isoformat() if start_date else '1776-07-04',
                     'observation_end': end_date.isoformat() if end_date else datetime.now().isoformat().split('T')[0],
-                    'limit': 100000,  # Maximum limit
+                    'limit': 100000,
                     'sort_order': 'asc'
                 }
                 
@@ -156,9 +124,6 @@ class FREDDataFetcher(BaseDataFetcher):
         return all_series_data
 
     async def get_series_info(self, series_id: str) -> Dict[str, Any]:
-        """
-        Get metadata information for a FRED series
-        """
         try:
             url = f"{self.base_url}/series"
             params = {
@@ -188,75 +153,7 @@ class FREDDataFetcher(BaseDataFetcher):
             logger.error(f"Failed to get series info for {series_id}: {e}")
             return {}
 
-class PolygonDataFetcher(BaseDataFetcher):
-    """Polygon API Data Fetcher"""
-    
-    def __init__(self):
-        self.api_key = os.getenv('POLYGON_API_KEY')
-        self.base_url = "https://api.polygon.io"
-        
-        if not self.api_key:
-            logger.error("POLYGON_API_KEY not found in environment variables.")
-            raise ValueError("POLYGON_API_KEY is required for PolygonDataFetcher.")
-
-    async def fetch(self, series_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None) -> List[Dict[str, Any]]:
-        try:
-            ticker = series_id.strip()
-            url = f"{self.base_url}/v2/aggs/ticker/{ticker}/range/1/day/{start_date.isoformat() if start_date else '2000-01-01'}/{end_date.isoformat() if end_date else datetime.now().isoformat().split('T')[0]}"
-            params = {
-                "apiKey": self.api_key,
-                "adjusted": "true",
-                "sort": "asc",
-                "limit": 50000
-            }
-            
-            logger.info(f"Fetching Polygon data for ticker: {ticker}")
-            response = requests.get(url, params=params, timeout=30)
-            
-            if response.status_code == 401:
-                raise ValueError(f"Polygon API authentication failed. Check your API key.")
-            elif response.status_code == 403:
-                raise ValueError(f"Polygon API access forbidden. Check your API key permissions.")
-            elif response.status_code == 429:
-                raise ValueError(f"Polygon API rate limit exceeded. Please wait and try again.")
-            elif response.status_code == 400:
-                raise ValueError(f"Polygon API Bad Request (400): Invalid request parameters")
-            elif response.status_code == 404:
-                raise ValueError(f"Polygon API Not Found (404): Ticker does not exist")
-            
-            response.raise_for_status()
-            
-            data = response.json()
-            results = data.get('results', [])
-            
-            if not results:
-                logger.warning(f"No results found for Polygon ticker: {ticker}")
-                return []
-            
-            fetched_data = []
-            for result in results:
-                try:
-                    result_date = pd.to_datetime(result['t'], unit='ms').date()
-                    result_value = float(result['c'])  # Close price
-                    
-                    fetched_data.append({
-                        'date': result_date,
-                        'value': result_value
-                    })
-                except (ValueError, KeyError) as e:
-                    logger.debug(f"Skipping invalid result: {e}")
-                    continue
-            
-            logger.info(f"Fetched {len(fetched_data)} records for ticker {ticker}")
-            return fetched_data
-
-        except Exception as e:
-            logger.error(f"Error fetching Polygon data for {ticker}: {e}")
-            raise
-
 class ShillerDataFetcher(BaseDataFetcher):
-    """Shiller Data Fetcher"""
-    
     def __init__(self):
         self.data_url = os.getenv('SHILLER_DATA_URL')
         if not self.data_url:
@@ -296,51 +193,21 @@ class ShillerDataFetcher(BaseDataFetcher):
             raise
 
 class DataFetcherFactory:
-    """Factory to get the appropriate data fetcher based on source."""
-    
     @staticmethod
-    def get_fetcher(source: str, use_mock: bool = None) -> Optional[BaseDataFetcher]:
-        """
-        Get data fetcher (real or mock)
-        
-        Args:
-            source: Data source name (FRED, Polygon, etc.)
-            use_mock: Force mock mode. If None, auto-detect based on API key presence
-        """
+    def get_fetcher(source: str) -> Optional[BaseDataFetcher]:
         source_lower = source.lower()
         
-        if use_mock is None:
-            environment = os.getenv('ENVIRONMENT', 'development')
-            
-            if "fred" in source_lower:
-                use_mock = not bool(os.getenv('FRED_API_KEY')) and environment == 'development'
-            elif "polygon" in source_lower:
-                use_mock = not bool(os.getenv('POLYGON_API_KEY')) and environment == 'development'
-            elif "shiller" in source_lower:
-                use_mock = not bool(os.getenv('SHILLER_DATA_URL')) and environment == 'development'
-            else:
-                use_mock = False
-        
         try:
-            # FRED
             if "fred" in source_lower:
-                if use_mock and MOCK_AVAILABLE:
-                    logger.info(f"🔧 [DEV MODE] Using mock FRED data fetcher (no API key needed)")
-                    return MockFREDDataFetcher()
-                else:
-                    logger.info(f"🚀 [PROD MODE] Using real FRED API")
-                    return FREDDataFetcher()
+                logger.info("Using real FRED API")
+                return FREDDataFetcher()
             
             elif "polygon" in source_lower:
-                logger.error(f"❌ Polygon API is no longer supported")
+                logger.error("Polygon API is no longer supported")
                 raise ValueError("POLYGON_NOT_SUPPORTED: Polygon API is no longer available. Please use alternative data source.")
             
             elif "shiller" in source_lower:
-                if use_mock and MOCK_AVAILABLE:
-                    logger.info(f"🔧 [DEV MODE] Using mock Shiller data fetcher")
-                    return MockShillerDataFetcher()
-                else:
-                    return ShillerDataFetcher()
+                return ShillerDataFetcher()
             
             else:
                 logger.warning(f"No data fetcher implemented for source: {source}")
@@ -348,42 +215,23 @@ class DataFetcherFactory:
         
         except Exception as e:
             logger.error(f"Failed to create data fetcher for source {source}: {e}")
-            
-            if MOCK_AVAILABLE and "fred" in source_lower:
-                logger.warning(f"Falling back to mock data for {source}")
-                return MockFREDDataFetcher()
-            
             return None
 
     @staticmethod
     def get_available_sources() -> List[str]:
-        """Get list of available data sources (real and mock)"""
         available = []
         
         if os.getenv('FRED_API_KEY'):
-            available.append('FRED (Real API)')
-        elif MOCK_AVAILABLE:
-            available.append('FRED (Mock)')
-        
-        if os.getenv('POLYGON_API_KEY'):
-            available.append('Polygon (Real API)')
-        elif MOCK_AVAILABLE:
-            available.append('Polygon (Mock)')
+            available.append('FRED')
         
         if os.getenv('SHILLER_DATA_URL'):
-            available.append('Shiller (Real)')
-        elif MOCK_AVAILABLE:
-            available.append('Shiller (Mock)')
+            available.append('Shiller')
         
         return available
     
     @staticmethod
     def get_api_keys_status() -> Dict[str, str]:
-        """Get status of API keys"""
         return {
-            'fred': 'configured' if os.getenv('FRED_API_KEY') else 'missing (using mock)',
-            'polygon': 'configured' if os.getenv('POLYGON_API_KEY') else 'missing (using mock)',
-            'shiller': 'configured' if os.getenv('SHILLER_DATA_URL') else 'missing (using mock)',
-            'environment': os.getenv('ENVIRONMENT', 'development'),
-            'mock_available': MOCK_AVAILABLE
+            'fred': 'configured' if os.getenv('FRED_API_KEY') else 'missing',
+            'shiller': 'configured' if os.getenv('SHILLER_DATA_URL') else 'missing',
         }

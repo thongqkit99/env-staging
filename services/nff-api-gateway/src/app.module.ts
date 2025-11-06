@@ -8,8 +8,6 @@ import { ExportController } from './controllers/export.controller';
 import { CorsMiddleware } from './middleware/cors.middleware';
 import { AuthModule } from './modules/auth.module';
 import { BlockModule } from './modules/block.module';
-import { ChartCategoryModule } from './modules/chart-category.module';
-import { DataIngestionModule } from './modules/data-ingestion.module';
 import { IndicatorETLModule } from './modules/indicator-etl.module';
 import { IndicatorTimeSeriesModule } from './modules/indicator-time-series.module';
 import { IndicatorModule } from './modules/indicator.module';
@@ -20,7 +18,6 @@ import { ReportTypeModule } from './modules/report-type.module';
 import { ReportModule } from './modules/report.module';
 import { SchedulerModule } from './modules/scheduler.module';
 import { TradingViewModule } from './modules/tradingview.module';
-import { UserModule } from './modules/user.module';
 import { ChartExportService } from './services/chart-export.service';
 import { ChartImageService } from './services/chart-image.service';
 import { ChartService } from './services/chart.service';
@@ -41,7 +38,6 @@ import config from './shared/config';
     }),
     PrismaModule,
     AuthModule,
-    UserModule,
     ReportModule,
     ReportTypeModule,
     BlockModule,
@@ -49,8 +45,6 @@ import config from './shared/config';
     IndicatorETLModule,
     IndicatorTimeSeriesModule,
     JobManagementModule,
-    DataIngestionModule,
-    ChartCategoryModule,
     LobstrModule,
     SchedulerModule,
     TradingViewModule,

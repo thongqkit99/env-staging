@@ -1,7 +1,6 @@
 import {
   Controller,
   Post,
-  Get,
   Body,
   HttpException,
   HttpStatus,
@@ -70,29 +69,6 @@ export class IndicatorETLController {
       };
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-  }
-
-  @Get('jobs/all')
-  @ApiOperation({ summary: 'Get all ETL jobs' })
-  @ApiResponse({ status: 200, description: 'All jobs retrieved' })
-  async getAllJobs() {
-    try {
-      // Proxy to Python service
-      const jobs = await this.indicatorETLService.getAllETLJobs();
-      return {
-        success: true,
-        jobs: jobs,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to get all jobs: ${error.message}`,
-        error.stack,
-      );
-      throw new HttpException(
-        `Failed to get jobs: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
   }
 

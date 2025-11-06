@@ -120,7 +120,7 @@ export class IndicatorETLService {
         `${this.dataIngestionServiceUrl}/api/v1/indicators/import`,
         payload,
         {
-          timeout: 15000,
+          timeout: 200000,
           headers: {
             'Content-Type': 'application/json',
           },
@@ -171,28 +171,6 @@ export class IndicatorETLService {
         error.stack,
       );
       throw new Error(`Failed to get indicators: ${error.message}`);
-    }
-  }
-
-  async getAllETLJobs(): Promise<any> {
-    try {
-      const response = await axios.get(
-        `${this.dataIngestionServiceUrl}/api/v1/etl/jobs`,
-        {
-          timeout: 10000,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        `Failed to get all ETL jobs: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get all ETL jobs: ${error.message}`);
     }
   }
 
